@@ -1,41 +1,38 @@
-from fastapi import FastAPI, Request
-import logging
 import os
-import httpx
+import requests
+from fastapi import FastAPI, Request
 
 app = FastAPI()
 
-logging.basicConfig(level=logging.INFO)
+BITRIX_REST_URL = os.getenv("BITRIX_REST_URL")
+BOT_ID = os.getenv("BOT_ID")
 
-BITRIX_WEBHOOK = os.getenv("BITRIX_WEBHOOK")  
-# пример:
-# https://yourdomain.bitrix24.ru/rest/1/xxxxxxxxxx/
 
 @app.post("/")
-async def bitrix_webhook(request: Request):
+async def webhook(request: Request):
     data = await request.json()
-    logging.info(data)
+    print("INCOMING:", data)
 
-    event = data.get("event")
+    if data.get("event") != "ONIMBOTMESSAGEADD":
+        return {"status": "ignored"}
+
     payload = data.get("data", {})
+    author_id = str(payload.get("AUTHOR_ID"))
+    dialog_id = payload.get("DIALOG_ID")
+    message = payload.get("MESSAGE", "")
 
-    # сообщение от врача
-    if event == "OnImMessageAdd":
-        chat_id = payload.get("CHAT_ID")
-        text = payload.get("MESSAGE")
+    # оператор → игнор
+    if author_id != "0":
+        return {"status": "operator_ignored"}
 
-        # минимальный автоответ оператору
-        await send_to_bitrix(chat_id, f"📩 Сообщение от врача:\n{text}")
-
-    return {"result": "ok"}
+    send_message(dialog_id, f"Эхо: {message}")
+    return {"status": "ok"}
 
 
-async def send_to_bitrix(chat_id: int, text: str):
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            f"{BITRIX_WEBHOOK}imbot.message.add",
-            json={
-                "CHAT_ID": chat_id,
-                "MESSAGE": text
-            }
-        )
+def send_message(dialog_id: str, text: str):
+    url = f"{BITRIX_REST_URL}/imbot.message.add"
+    requests.post(url, json={
+        "BOT_ID": BOT_ID,
+        "DIALOG_ID": dialog_id,
+        "MESSAGE": text
+    })
